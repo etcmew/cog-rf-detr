@@ -1,8 +1,11 @@
 build:
-  gpu: true
-  python_version: "3.12"
+  gpu: false
+  python_version: "3.10"
   python_packages:
-    - "torch==2.3.1"
+    - "pydantic==1.10.8"
+    - "torch==2.4.1"
     - "rfdetr"
-
+  run:
+    - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)" && chmod +x /usr/local/bin/pget
 image: "hardikdava/rf-detr"
+predict: "predict.py:Predictor"   # Prediction endpoints

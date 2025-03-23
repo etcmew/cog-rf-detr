@@ -15,12 +15,12 @@ class ModelOutput(BaseModel):
 class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
-        self.model = RFDETRBase()
+        self.model = RFDETRBase(pretrain_weights="rf-detr-base.pth")
 
     def predict(self,
                 image: Path = Input(description="Input image for prediction"),
                 confidence_threshold: float = Input(default=0.5, description="Confidence threshold for predictions"),
-                ) -> Path:
+                ) -> ModelOutput:
         """Run a single prediction on the model"""
         image_pil = Image.open(image)
         detections = self.model.predict(image_pil, threshold=confidence_threshold)
@@ -41,11 +41,11 @@ class Predictor(BasePredictor):
         annotated_image = sv.BoxAnnotator().annotate(annotated_image, detections)
         annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels=detections_labels)
 
-        tmp_save_path = "tmp/annotated_image.jpg"
+        tmp_save_path = "annotated_image.jpg"
         annotated_image.save(tmp_save_path)
 
         detection_output = []
-        for class_id, confidence, box in zip(detections.class_id, detections.confidence, detections.bbox):
+        for class_id, confidence, box in zip(detections.class_id, detections.confidence, detections.xyxy):
             detection_output.append({
                 "class_id": class_id,
                 "confidence": confidence,
