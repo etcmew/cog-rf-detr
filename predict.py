@@ -13,13 +13,16 @@ class Predictor(BasePredictor):
         self.model = None
 
     def predict(self,
-                model_weights: Optional[Path] = Input(description="Binary upload of the model weights file", default=None),
+                model_weights: Optional[Path] = Input(description="Zip file containing the model weights. The file will be unzipped and used for model initialization.", default=None),
                 training_dataset: Path = Input(description="Zip file containing the training dataset"),
                 epochs: int = Input(description="Number of training epochs", default=100),
                                 ) -> ModelOutput:
-        model_weights_path = "model_weights.pth"
+        model_weights_path = "model_weights.zip"
+        extracted_model_weights_dir = "extracted_model_weights"
         if model_weights is not None:
             model_weights.rename(model_weights_path)
+            with zipfile.ZipFile(model_weights_path, 'r') as zip_ref:
+                zip_ref.extractall(extracted_model_weights_dir)
 
         training_dataset_path = "training_dataset.zip"
         training_dataset.rename(training_dataset_path)
@@ -27,8 +30,8 @@ class Predictor(BasePredictor):
         with zipfile.ZipFile(training_dataset_path, 'r') as zip_ref:
             zip_ref.extractall(extracted_dataset_dir)
 
-        if self.model is None or (model_weights is not None and self.model.weights_path != model_weights_path):
-            self.model = RFDETRLarge(resolution=896, pretrain_weights=model_weights_path if model_weights is not None else None)
+        if self.model is None or (model_weights is not None and self.model.weights_path != extracted_model_weights_dir):
+            self.model = RFDETRLarge(resolution=896, pretrain_weights=extracted_model_weights_dir if model_weights is not None else None)
 
         history = []
 
