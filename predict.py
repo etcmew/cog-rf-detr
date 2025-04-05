@@ -1,5 +1,6 @@
 from typing import Optional
 import zipfile
+import os
 
 from cog import BasePredictor, Path, Input, BaseModel
 from rfdetr import RFDETRLarge
@@ -19,10 +20,16 @@ class Predictor(BasePredictor):
                                 ) -> ModelOutput:
         model_weights_path = "model_weights.zip"
         extracted_model_weights_dir = "extracted_model_weights"
+        pretrain_weights_path = None
         if model_weights is not None:
             model_weights.rename(model_weights_path)
             with zipfile.ZipFile(model_weights_path, 'r') as zip_ref:
                 zip_ref.extractall(extracted_model_weights_dir)
+
+            # Assuming the extracted directory contains a single file for weights
+            extracted_files = os.listdir(extracted_model_weights_dir)
+            if len(extracted_files) == 1:
+                pretrain_weights_path = os.path.join(extracted_model_weights_dir, extracted_files[0])
 
         training_dataset_path = "training_dataset.zip"
         training_dataset.rename(training_dataset_path)
@@ -30,8 +37,8 @@ class Predictor(BasePredictor):
         with zipfile.ZipFile(training_dataset_path, 'r') as zip_ref:
             zip_ref.extractall(extracted_dataset_dir)
 
-        if self.model is None or (model_weights is not None and self.model.weights_path != extracted_model_weights_dir):
-            self.model = RFDETRLarge(resolution=896, pretrain_weights=extracted_model_weights_dir if model_weights is not None else None)
+        if self.model is None or (model_weights is not None and self.model.weights_path != pretrain_weights_path):
+            self.model = RFDETRLarge(resolution=896, pretrain_weights=pretrain_weights_path if pretrain_weights_path else None)
 
         history = []
 
