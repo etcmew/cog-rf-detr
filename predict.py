@@ -2,7 +2,7 @@ from typing import Optional
 import zipfile
 
 from cog import BasePredictor, Path, Input, BaseModel
-from rfdetr import RFDETRBase
+from rfdetr import RFDETRLarge
 
 class ModelOutput(BaseModel):
     trained_weights: Path
@@ -28,7 +28,7 @@ class Predictor(BasePredictor):
             zip_ref.extractall(extracted_dataset_dir)
 
         if self.model is None or (model_weights is not None and self.model.weights_path != model_weights_path):
-            self.model = RFDETRBase(pretrain_weights=model_weights_path if model_weights is not None else None)
+            self.model = RFDETRLarge(resolution=896, pretrain_weights=model_weights_path if model_weights is not None else None)
 
         history = []
 
