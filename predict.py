@@ -26,10 +26,12 @@ class Predictor(BasePredictor):
             with zipfile.ZipFile(model_weights_path, 'r') as zip_ref:
                 zip_ref.extractall(extracted_model_weights_dir)
 
-            # Assuming the extracted directory contains a single file for weights
-            extracted_files = os.listdir(extracted_model_weights_dir)
+            # Ensure the extracted directory contains exactly one file
+            extracted_files = [f for f in os.listdir(extracted_model_weights_dir) if os.path.isfile(os.path.join(extracted_model_weights_dir, f))]
             if len(extracted_files) == 1:
                 pretrain_weights_path = os.path.join(extracted_model_weights_dir, extracted_files[0])
+            else:
+                raise ValueError("The model_weights zip file must contain exactly one file.")
 
         training_dataset_path = "training_dataset.zip"
         training_dataset.rename(training_dataset_path)
