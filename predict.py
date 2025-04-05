@@ -15,6 +15,7 @@ class Predictor(BasePredictor):
     def predict(self,
                 model_weights: Optional[Path] = Input(description="Binary upload of the model weights file", default=None),
                 training_dataset: Path = Input(description="Zip file containing the training dataset"),
+                epochs: int = Input(description="Number of training epochs", default=100),
                                 ) -> ModelOutput:
         model_weights_path = "rf-detr-uploaded.pth"
         if model_weights is not None:
@@ -38,7 +39,7 @@ class Predictor(BasePredictor):
 
         self.model.train(
             dataset_dir=extracted_dataset_dir,
-            epochs=100,
+            epochs=epochs,
             device="cuda",
             batch_size=4,
             grad_accum_steps=16,
