@@ -17,7 +17,7 @@ class Predictor(BasePredictor):
                 training_dataset: Path = Input(description="Zip file containing the training dataset"),
                 epochs: int = Input(description="Number of training epochs", default=100),
                                 ) -> ModelOutput:
-        model_weights_path = "rf-detr-uploaded.pth"
+        model_weights_path = "model_weights.pth"
         if model_weights is not None:
             model_weights.rename(model_weights_path)
 
