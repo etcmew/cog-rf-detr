@@ -1,58 +1,52 @@
-from typing import Optional, List
+from typing import Optional
+import zipfile
 
 from cog import BasePredictor, Path, Input, BaseModel
-import supervision as sv
-from PIL import Image
 from rfdetr import RFDETRBase
-from rfdetr.util.coco_classes import COCO_CLASSES
-
 
 class ModelOutput(BaseModel):
-    detections: List
-    result_image: Optional[Path]
-
+    trained_weights: Path
 
 class Predictor(BasePredictor):
     def setup(self):
-        """Load the model into memory to make running multiple predictions efficient"""
-        self.model = RFDETRBase(pretrain_weights="rf-detr-base.pth")
+        """Initialize the model variable."""
+        self.model = None
 
     def predict(self,
-                image: Path = Input(description="Input image for prediction"),
-                confidence_threshold: float = Input(default=0.5, description="Confidence threshold for predictions"),
-                ) -> ModelOutput:
-        """Run a single prediction on the model"""
-        image_pil = Image.open(image)
-        detections = self.model.predict(image_pil, threshold=confidence_threshold)
+                model_weights: Optional[Path] = Input(description="Binary upload of the model weights file", default=None),
+                training_dataset: Path = Input(description="Zip file containing the training dataset"),
+                                ) -> ModelOutput:
+        model_weights_path = "rf-detr-uploaded.pth"
+        if model_weights is not None:
+            model_weights.rename(model_weights_path)
 
-        if len(detections) == 0:
-            return ModelOutput(
-                detections=[],
-                result_image=image,
-            )
+        training_dataset_path = "training_dataset.zip"
+        training_dataset.rename(training_dataset_path)
+        extracted_dataset_dir = "extracted_training_dataset"
+        with zipfile.ZipFile(training_dataset_path, 'r') as zip_ref:
+            zip_ref.extractall(extracted_dataset_dir)
 
-        detections_labels = [
-            f"{COCO_CLASSES[class_id]} {confidence:.2f}"
-            for class_id, confidence
-            in zip(detections.class_id, detections.confidence)
-        ]
+        if self.model is None or (model_weights is not None and self.model.weights_path != model_weights_path):
+            self.model = RFDETRBase(pretrain_weights=model_weights_path if model_weights is not None else None)
 
-        annotated_image = image_pil.copy()
-        annotated_image = sv.BoxAnnotator().annotate(annotated_image, detections)
-        annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels=detections_labels)
+        history = []
 
-        tmp_save_path = "annotated_image.jpg"
-        annotated_image.save(tmp_save_path)
+        def callback2(data):
+            history.append(data)
 
-        detection_output = []
-        for class_id, confidence, box in zip(detections.class_id, detections.confidence, detections.xyxy):
-            detection_output.append({
-                "class_id": class_id,
-                "confidence": confidence,
-                "label": COCO_CLASSES[class_id],
-                "bbox": box.tolist(),
-            })
+        self.model.callbacks["on_fit_epoch_end"].append(callback2)
+
+        self.model.train(
+            dataset_dir=extracted_dataset_dir,
+            epochs=100,
+            device="cuda",
+            batch_size=4,
+            grad_accum_steps=16,
+            lr=1e-4,
+        )
+
+        trained_weights_path = "output/checkpoint.pth"
+
         return ModelOutput(
-            detections=detection_output,
-            result_image=Path(tmp_save_path),
+            trained_weights=Path(trained_weights_path),
         )
