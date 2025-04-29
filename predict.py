@@ -24,7 +24,7 @@ class Predictor(BasePredictor):
             zip_ref.extractall(extracted_dataset_dir)
 
         if self.model is None:
-            self.model = RFDETRBase(resolution=640, pretrain_weights=None)
+            self.model = RFDETRBase(pretrain_weights=None)
 
         history = []
 
