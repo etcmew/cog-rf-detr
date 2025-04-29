@@ -15,7 +15,7 @@ class Predictor(BasePredictor):
 
     def predict(self,
                 training_dataset: Path = Input(description="Zip file containing the training dataset"),
-                epochs: int = Input(description="Number of training epochs", default=100),
+                epochs: int = Input(description="Number of training epochs", default=50),
                                 ) -> ModelOutput:
         training_dataset_path = "training_dataset.zip"
         training_dataset.rename(training_dataset_path)
