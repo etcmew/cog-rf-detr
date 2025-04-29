@@ -3,7 +3,7 @@ import zipfile
 import os
 
 from cog import BasePredictor, Path, Input, BaseModel
-from rfdetr import RFDETRLarge
+from rfdetr import RFDETRBase
 
 class ModelOutput(BaseModel):
     trained_weights: Path
@@ -15,7 +15,7 @@ class Predictor(BasePredictor):
 
     def predict(self,
                 training_dataset: Path = Input(description="Zip file containing the training dataset"),
-                epochs: int = Input(description="Number of training epochs", default=100),
+                epochs: int = Input(description="Number of training epochs", default=10),
                                 ) -> ModelOutput:
         training_dataset_path = "training_dataset.zip"
         training_dataset.rename(training_dataset_path)
@@ -24,7 +24,7 @@ class Predictor(BasePredictor):
             zip_ref.extractall(extracted_dataset_dir)
 
         if self.model is None:
-            self.model = RFDETRLarge(resolution=896, pretrain_weights=None)
+            self.model = RFDETRBase(resolution=640, pretrain_weights=None)
 
         history = []
 
