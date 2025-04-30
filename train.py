@@ -243,7 +243,7 @@ class Predictor(BasePredictor):
             print(f"Running model prediction using: {weights_source}")
             image_path_str = str(image)
             prediction_results = model_to_use.predict(
-                image_path=image_path_str, confidence_threshold=confidence_threshold
+                image_or_path=image_path_str, confidence_threshold=confidence_threshold
             )
             print("Model prediction finished.")
             return prediction_results
