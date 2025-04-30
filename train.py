@@ -1,14 +1,26 @@
 # -*- coding: utf-8 -*-
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 import zipfile
 import os
 import shutil
 import json
 import warnings
+import tempfile
 
 from cog import Input, Path, BaseModel, BasePredictor
 from rfdetr import RFDETRBase
+
+try:
+    import supervision as sv
+    from PIL import Image
+
+    SUPERVISION_AVAILABLE = True
+except ImportError:
+    SUPERVISION_AVAILABLE = False
+    print(
+        "Warning: 'supervision' or 'Pillow' library not found. Annotation features will be disabled."
+    )
 
 
 class TrainingOutput(BaseModel):
@@ -18,6 +30,16 @@ class TrainingOutput(BaseModel):
     """
 
     trained_weights: Path
+
+
+class PredictionOutput(BaseModel):
+    """
+    Defines the output structure for the prediction process.
+    Includes the annotated image and raw detection data.
+    """
+
+    annotated_image: Path
+    detections_json: str
 
 
 def train(
@@ -148,6 +170,7 @@ class Predictor(BasePredictor):
     Cog Predictor class for RF-DETR model.
     Loads trained weights (ideally specified by COG_WEIGHTS) during setup
     and runs inference. Allows overriding weights per prediction via input.
+    Outputs annotated image and JSON detection data.
     """
 
     def setup(self):
@@ -185,24 +208,33 @@ class Predictor(BasePredictor):
         confidence_threshold: float = Input(
             description="Confidence threshold for detections", default=0.5, ge=0, le=1.0
         ),
-    ) -> Any:
+        num_classes: int = Input(
+            description="Number of classes the model was trained for (e.g., 1 for 'navel')",
+            default=1,
+        ),
+    ) -> PredictionOutput:
         """
-        Run a single prediction on the model.
-
-        If `pretrained_weights` is provided, it loads a model with those specific
-        weights for this prediction (less efficient). Otherwise, uses the default
-        model loaded during setup.
+        Run a single prediction on the model. Annotates the image and returns
+        both the annotated image and the raw detection data as JSON.
 
         Args:
             image (Path): Path to the input image file.
             pretrained_weights (Optional[Path]): Path to specific weights to use for this prediction.
             confidence_threshold (float): Minimum confidence score for detected objects.
+            num_classes (int): Number of classes expected by the model.
 
         Returns:
-            Any: The prediction results from the RFDETRBase model.
+            PredictionOutput: An object containing the path to the annotated image
+                              and a JSON string of the detections.
         """
         print(f"Received prediction request for image: {image}")
         print(f"Confidence threshold: {confidence_threshold}")
+        print(f"Num classes: {num_classes}")
+
+        if not SUPERVISION_AVAILABLE:
+            raise ImportError(
+                "Annotation failed: 'supervision' or 'Pillow' library not installed."
+            )
 
         model_to_use = None
         weights_source = "default model loaded during setup"
@@ -218,14 +250,12 @@ class Predictor(BasePredictor):
                 print(
                     f"Loading model with specific weights for this prediction: {pretrained_weights_path}"
                 )
-                try:
-                    model_to_use = RFDETRBase(pretrain_weights=pretrained_weights_path)
-                    print("Temporary model loaded successfully with specific weights.")
-                except Exception as e:
-                    print(
-                        f"Error loading model with specific weights ({pretrained_weights_path}): {e}"
-                    )
-                    raise
+                # Allow exceptions during temporary model loading to crash
+                model_to_use = RFDETRBase(
+                    pretrain_weights=pretrained_weights_path, num_classes=num_classes
+                )
+                print("Temporary model loaded successfully with specific weights.")
+
             else:
                 print(
                     f"Error: Specified pretrained_weights path does not exist: {pretrained_weights_path}"
@@ -239,20 +269,96 @@ class Predictor(BasePredictor):
                 raise RuntimeError("Default model failed to load during setup.")
             model_to_use = self.default_model
 
+        # Allow exceptions during prediction/annotation to crash
         try:
             print(f"Running model prediction using: {weights_source}")
             image_path_str = str(image)
-            prediction_results = model_to_use.predict(
-                image_or_path=image_path_str, confidence_threshold=confidence_threshold
+            pil_image = Image.open(image_path_str).convert("RGB")
+
+            detections = model_to_use.predict(
+                image_or_path=pil_image, confidence_threshold=confidence_threshold
             )
             print("Model prediction finished.")
-            return prediction_results
+            print(f"Raw detections object: {detections}")
 
-        except AttributeError:
-            print(
-                f"Error: The selected model ({type(model_to_use)}) does not have a 'predict' method as expected."
+            detections_list = []
+            if detections and hasattr(detections, "xyxy") and len(detections.xyxy) > 0:
+                for i in range(len(detections.xyxy)):
+                    det_data = {
+                        "box": detections.xyxy[i].tolist(),
+                        "confidence": float(detections.confidence[i])
+                        if hasattr(detections, "confidence")
+                        else None,
+                        "class_id": int(detections.class_id[i])
+                        if hasattr(detections, "class_id")
+                        else None,
+                        "tracker_id": int(detections.tracker_id[i])
+                        if hasattr(detections, "tracker_id")
+                        and detections.tracker_id is not None
+                        else None,
+                    }
+                    detections_list.append(
+                        {k: v for k, v in det_data.items() if v is not None}
+                    )
+
+            detections_json = json.dumps(detections_list, indent=2)
+            print(f"Detections JSON: {detections_json}")
+
+            annotated_image = pil_image.copy()
+
+            if detections_list:
+                CLASS_NAMES = {i: f"class_{i}" for i in range(num_classes)}
+                if num_classes == 1:
+                    CLASS_NAMES = {0: "navel"}
+
+                labels = [
+                    f"{CLASS_NAMES.get(det['class_id'], f'id_{det["class_id"]}')} {det['confidence']:.2f}"
+                    for det in detections_list
+                    if "class_id" in det and "confidence" in det
+                ]
+
+                color = sv.ColorPalette.DEFAULT
+                text_scale = sv.calculate_optimal_text_scale(
+                    resolution_wh=pil_image.size
+                )
+                thickness = sv.calculate_optimal_line_thickness(
+                    resolution_wh=pil_image.size
+                )
+
+                bbox_annotator = sv.BoxAnnotator(color=color, thickness=thickness)
+                label_annotator = sv.LabelAnnotator(
+                    color=color,
+                    text_color=sv.Color.BLACK,
+                    text_scale=text_scale,
+                    text_thickness=thickness // 2,
+                    text_padding=thickness * 2,
+                    smart_position=True,
+                )
+
+                annotated_image = bbox_annotator.annotate(
+                    annotated_image, detections=detections
+                )
+                annotated_image = label_annotator.annotate(
+                    annotated_image, detections=detections, labels=labels
+                )
+                print("Image annotation applied.")
+            else:
+                print("No detections found meeting threshold, skipping annotation.")
+
+            output_dir = tempfile.mkdtemp()
+            annotated_image_path = os.path.join(output_dir, "annotated_output.png")
+            if not isinstance(annotated_image, Image.Image):
+                annotated_image = Image.fromarray(annotated_image)
+            annotated_image.save(annotated_image_path)
+            print(f"Annotated image saved to: {annotated_image_path}")
+
+            return PredictionOutput(
+                annotated_image=Path(annotated_image_path),
+                detections_json=detections_json,
             )
-            raise
-        except Exception as e:
-            print(f"Error during prediction: {e}")
+
+        except AttributeError as e:
+            print(
+                f"Error: Attribute error during prediction/annotation. Check model output format and method calls: {e}"
+            )
             raise
