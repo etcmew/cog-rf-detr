@@ -274,10 +274,8 @@ class Predictor(BasePredictor):
             print(f"Running model prediction using: {weights_source}")
             image_path_str = str(image)
             pil_image = Image.open(image_path_str).convert("RGB")
-
-            detections = model_to_use.predict(
-                image_or_path=pil_image, confidence_threshold=confidence_threshold
-            )
+            detections = model_to_use.predict(pil_image, threshold=confidence_threshold)
+            
             print("Model prediction finished.")
             print(f"Raw detections object: {detections}")
 
